@@ -1,11 +1,11 @@
 import mysql from 'mysql2/promise';
 
 const POOL = mysql.createPool({
-  host: '153.92.15.2',
-  port: 3306,
-  user: 'u664488865_monitorwebsite',
-  password: 'Kanoko2007##@@',
-  database: 'u664488865_monitorwebsite',
+  host: process.env.DB_HOST || '153.92.15.2',
+  port: parseInt(process.env.DB_PORT || '3306'),
+  user: process.env.DB_USER || 'u664488865_monitorwebsite',
+  password: process.env.DB_PASSWORD || 'Kanoko2007##@@',
+  database: process.env.DB_NAME || 'u664488865_monitorwebsite',
   waitForConnections: true,
   connectionLimit: 5,
 });
