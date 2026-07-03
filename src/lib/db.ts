@@ -1,11 +1,15 @@
 import mysql from 'mysql2/promise';
 
+if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_PASSWORD || !process.env.DB_NAME) {
+  throw new Error('Missing DB_* environment variables. Set DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME in .env');
+}
+
 const POOL = mysql.createPool({
-  host: process.env.DB_HOST || '153.92.15.2',
+  host: process.env.DB_HOST,
   port: parseInt(process.env.DB_PORT || '3306'),
-  user: process.env.DB_USER || 'u664488865_monitorwebsite',
-  password: process.env.DB_PASSWORD || 'Kanoko2007##@@',
-  database: process.env.DB_NAME || 'u664488865_monitorwebsite',
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
   waitForConnections: true,
   connectionLimit: 5,
 });
