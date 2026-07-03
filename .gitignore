@@ -36,6 +36,13 @@ yarn-error.log*
 # vercel
 .vercel
 
+# omo
+.omo/
+.playwright-mcp/
+
+# data (JSON storage)
+data/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
