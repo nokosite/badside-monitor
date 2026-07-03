@@ -8,6 +8,7 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 export const metadata: Metadata = {
   title: "Badside Monitor — RKRP",
   description: "FiveM badside faction monitoring & statistics",
+  icons: { icon: '/favicon.svg' },
 };
 
 function Nav() {
