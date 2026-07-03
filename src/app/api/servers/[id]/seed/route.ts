@@ -37,9 +37,9 @@ const DEFAULT_BADGES = [
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  if (!getServer(id)) return NextResponse.json({ error: 'Server not found' }, { status: 404 });
+  if (!await getServer(id)) return NextResponse.json({ error: 'Server not found' }, { status: 404 });
 
-  const existing = listBadges(id);
+  const existing = await listBadges(id);
   const url = new URL(req.url);
   const force = url.searchParams.get('force') === 'true';
 
@@ -50,12 +50,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }, { status: 409 });
   }
 
-  for (const b of existing) deleteBadge(b.id);
+  for (const b of existing) await deleteBadge(b.id);
 
   // Add defaults
   const now = new Date().toISOString();
   for (const b of DEFAULT_BADGES) {
-    addBadge({ id: crypto.randomUUID().slice(0, 8), server_id: id, ...b, created_at: now });
+    await addBadge({ id: crypto.randomUUID().slice(0, 8), server_id: id, ...b, created_at: now });
   }
 
   return NextResponse.json({ seeded: DEFAULT_BADGES.length });

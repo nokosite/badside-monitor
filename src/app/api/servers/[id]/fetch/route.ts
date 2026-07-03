@@ -4,11 +4,11 @@ import { fetchPlayersByCfxCode, storeSnapshot } from '@/lib/fetcher';
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const server = getServer(id);
+  const server = await getServer(id);
   if (!server) return NextResponse.json({ error: 'Server not found' }, { status: 404 });
   if (!server.cfx_code) return NextResponse.json({ error: 'No CFX code configured' }, { status: 400 });
 
-  const badges = listBadges(id);
+  const badges = await listBadges(id);
   const players = await fetchPlayersByCfxCode(server.cfx_code);
   if (!players) {
     return NextResponse.json({ error: 'Could not fetch players. Server may be offline.' }, { status: 502 });

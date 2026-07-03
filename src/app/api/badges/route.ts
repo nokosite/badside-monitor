@@ -7,10 +7,10 @@ export async function POST(req: Request) {
   if (!server_id || !prefix?.trim() || !label?.trim()) {
     return NextResponse.json({ error: 'server_id, prefix, and label required' }, { status: 400 });
   }
-  if (!getServer(server_id)) return NextResponse.json({ error: 'Server not found' }, { status: 404 });
+  if (!await getServer(server_id)) return NextResponse.json({ error: 'Server not found' }, { status: 404 });
 
   const id = crypto.randomUUID().slice(0, 8);
-  addBadge({ id, server_id, prefix: prefix.trim().toUpperCase(), label: label.trim(), color: color || '#6366f1', created_at: new Date().toISOString() });
+  await addBadge({ id, server_id, prefix: prefix.trim().toUpperCase(), label: label.trim(), color: color || '#6366f1', created_at: new Date().toISOString() });
   return NextResponse.json({ id, prefix: prefix.trim().toUpperCase(), label: label.trim() });
 }
 
@@ -18,6 +18,6 @@ export async function DELETE(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'Badge id required' }, { status: 400 });
-  deleteBadge(id);
+  await deleteBadge(id);
   return NextResponse.json({ deleted: true });
 }

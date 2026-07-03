@@ -6,15 +6,15 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const server = getServer(id);
+  const server = await getServer(id);
   if (!server) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const url = new URL(req.url);
   const days = parseInt(url.searchParams.get('days') || '0');
   const cutoff = days > 0 ? Date.now() - days * 86400000 : 0;
 
-  const badges = listBadges(id);
-  const allSnapshots = readSnapshots(id);
+  const badges = await listBadges(id);
+  const allSnapshots = await readSnapshots(id);
   const snapshots = cutoff > 0
     ? allSnapshots.filter(s => new Date(s.fetched_at).getTime() >= cutoff)
     : allSnapshots;

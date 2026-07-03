@@ -1,110 +1,130 @@
-import path from 'path';
-import fs from 'fs';
+import mysql from 'mysql2/promise';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-
-// --- helpers ---
-function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-function readJSON<T>(file: string, fallback: T): T {
-  ensureDir();
-  try {
-    const raw = fs.readFileSync(path.join(DATA_DIR, file), 'utf-8');
-    return JSON.parse(raw);
-  } catch { return fallback; }
-}
-
-function writeJSON(file: string, data: unknown) {
-  ensureDir();
-  fs.writeFileSync(path.join(DATA_DIR, file), JSON.stringify(data, null, 2));
-}
+const POOL = mysql.createPool({
+  host: '153.92.15.2',
+  port: 3306,
+  user: 'u664488865_monitorwebsite',
+  password: 'Kanoko2007##@@',
+  database: 'u664488865_monitorwebsite',
+  waitForConnections: true,
+  connectionLimit: 5,
+});
 
 // --- types ---
-export interface ServerRow {
-  id: string; name: string; cfx_code: string; created_at: string;
-}
-export interface BadgeRow {
-  id: string; server_id: string; prefix: string; label: string; color: string; created_at: string;
-}
-export interface SnapshotRow {
-  id: string; server_id: string; fetched_at: string; player_name: string; badge_tag_id: string | null;
-}
-export interface SnapshotFile {
-  fetched_at: string;
-  players: Array<{ name: string; badge_tag_id: string | null }>;
-  badge_counts: Record<string, number>;
-}
+export interface ServerRow { id: string; name: string; cfx_code: string; created_at: string; }
+export interface BadgeRow { id: string; server_id: string; prefix: string; label: string; color: string; created_at: string; }
+export interface SnapshotFile { fetched_at: string; players: Array<{ name: string; badge_tag_id: string | null }>; badge_counts: Record<string, number>; }
 
 // --- servers ---
-export function listServers(): ServerRow[] {
-  return readJSON<ServerRow[]>('servers.json', []);
+export async function listServers(): Promise<ServerRow[]> {
+  const [rows] = await POOL.execute('SELECT * FROM servers ORDER BY created_at DESC');
+  return rows as ServerRow[];
 }
 
-export function getServer(id: string): ServerRow | undefined {
-  return listServers().find(s => s.id === id);
+export async function getServer(id: string): Promise<ServerRow | undefined> {
+  const [rows] = await POOL.execute('SELECT * FROM servers WHERE id = ?', [id]);
+  return (rows as any[])[0];
 }
 
-export function addServer(s: ServerRow) {
-  const all = listServers();
-  all.push(s);
-  writeJSON('servers.json', all);
+export async function addServer(s: ServerRow) {
+  await POOL.execute('INSERT INTO servers (id, name, cfx_code, created_at) VALUES (?, ?, ?, ?)',
+    [s.id, s.name, s.cfx_code, s.created_at]);
 }
 
-export function deleteServer(id: string) {
-  const all = listServers().filter(s => s.id !== id);
-  writeJSON('servers.json', all);
-  // clean up badges + snapshots
-  const badges = listBadges().filter(b => b.server_id !== id);
-  writeJSON('badges.json', badges);
-  const snapFile = `snapshots_${id}.json`;
-  if (fs.existsSync(path.join(DATA_DIR, snapFile))) fs.unlinkSync(path.join(DATA_DIR, snapFile));
+export async function deleteServer(id: string) {
+  await POOL.execute('DELETE FROM servers WHERE id = ?', [id]);
 }
 
 // --- badges ---
-export function listBadges(serverId?: string): BadgeRow[] {
-  const all = readJSON<BadgeRow[]>('badges.json', []);
-  return serverId ? all.filter(b => b.server_id === serverId) : all;
+export async function listBadges(serverId?: string): Promise<BadgeRow[]> {
+  if (serverId) {
+    const [rows] = await POOL.execute('SELECT * FROM badge_tags WHERE server_id = ?', [serverId]);
+    return rows as BadgeRow[];
+  }
+  const [rows] = await POOL.execute('SELECT * FROM badge_tags');
+  return rows as BadgeRow[];
 }
 
-export function addBadge(b: BadgeRow) {
-  const all = listBadges();
-  all.push(b);
-  writeJSON('badges.json', all);
+export async function addBadge(b: BadgeRow) {
+  await POOL.execute('INSERT INTO badge_tags (id, server_id, prefix, label, color, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [b.id, b.server_id, b.prefix, b.label, b.color, b.created_at]);
 }
 
-export function deleteBadge(id: string) {
-  const all = listBadges().filter(b => b.id !== id);
-  writeJSON('badges.json', all);
+export async function deleteBadge(id: string) {
+  await POOL.execute('DELETE FROM badge_tags WHERE id = ?', [id]);
 }
 
-// --- snapshots (per-server JSON array) ---
-function snapshotsFile(serverId: string): string {
-  return `snapshots_${serverId}.json`;
+// --- snapshots ---
+export async function readSnapshots(serverId: string): Promise<SnapshotFile[]> {
+  const [rows] = await POOL.execute(
+    'SELECT DISTINCT fetched_at FROM player_snapshots WHERE server_id = ? ORDER BY fetched_at', [serverId]
+  ) as any[];
+  
+  const dates: string[] = rows.map((r: any) => {
+    const d = new Date(r.fetched_at);
+    return d.toISOString().slice(0, 19).replace('T', ' ') + '.' + String(d.getMilliseconds()).padStart(3, '0');
+  });
+  
+  const snapshots: SnapshotFile[] = [];
+  for (const date of dates) {
+    const [players] = await POOL.execute(
+      'SELECT player_name, badge_tag_id FROM player_snapshots WHERE server_id = ? AND fetched_at = ?',
+      [serverId, date]
+    ) as any[];
+    
+    const badge_counts: Record<string, number> = {};
+    for (const p of players) {
+      if (p.badge_tag_id) badge_counts[p.badge_tag_id] = (badge_counts[p.badge_tag_id] || 0) + 1;
+    }
+    
+    snapshots.push({
+      fetched_at: date,
+      players: players.map((p: any) => ({ name: p.player_name, badge_tag_id: p.badge_tag_id })),
+      badge_counts,
+    });
+  }
+  return snapshots;
 }
 
-export function readSnapshots(serverId: string): SnapshotFile[] {
-  return readJSON<SnapshotFile[]>(snapshotsFile(serverId), []);
+export async function appendSnapshot(serverId: string, snap: SnapshotFile) {
+  const insert = 'INSERT INTO player_snapshots (id, server_id, fetched_at, player_name, badge_tag_id) VALUES (?, ?, ?, ?, ?)';
+  const crypto = await import('crypto');
+  
+  for (const player of snap.players) {
+    await POOL.execute(insert, [
+      crypto.randomUUID(), serverId, snap.fetched_at, player.name, player.badge_tag_id,
+    ]);
+  }
 }
 
-export function appendSnapshot(serverId: string, snap: SnapshotFile) {
-  const all = readSnapshots(serverId);
-  all.push(snap);
-  writeJSON(snapshotsFile(serverId), all);
-}
-
-export function latestSnapshot(serverId: string): SnapshotFile | null {
-  const all = readSnapshots(serverId);
-  return all.length ? all[all.length - 1] : null;
+export async function latestSnapshot(serverId: string): Promise<SnapshotFile | null> {
+  const [rows] = await POOL.execute(
+    'SELECT DISTINCT fetched_at FROM player_snapshots WHERE server_id = ? ORDER BY fetched_at DESC LIMIT 1', [serverId]
+  ) as any[];
+  if (!rows.length) return null;
+  
+  const [players] = await POOL.execute(
+    'SELECT player_name, badge_tag_id FROM player_snapshots WHERE server_id = ? AND fetched_at = ?',
+    [serverId, rows[0].fetched_at]
+  ) as any[];
+  
+  const badge_counts: Record<string, number> = {};
+  for (const p of players) {
+    if (p.badge_tag_id) badge_counts[p.badge_tag_id] = (badge_counts[p.badge_tag_id] || 0) + 1;
+  }
+  
+  return {
+    fetched_at: rows[0].fetched_at,
+    players: players.map((p: any) => ({ name: p.player_name, badge_tag_id: p.badge_tag_id })),
+    badge_counts,
+  };
 }
 
 // --- computed stats ---
-export function computeStats(serverId: string) {
-  const snaps = readSnapshots(serverId);
-  const badges = listBadges(serverId);
-
-  // Daily aggregation
+export async function computeStats(serverId: string) {
+  const badges = await listBadges(serverId);
+  const snaps = await readSnapshots(serverId);
+  
   const dailyMap = new Map<string, Record<string, { count: number; label: string; prefix: string; color: string }>>();
   for (const snap of snaps) {
     const date = snap.fetched_at.slice(0, 10);
@@ -117,18 +137,17 @@ export function computeStats(serverId: string) {
       day[badgeId].count += count;
     }
   }
-
+  
   const dailyStats = Array.from(dailyMap.entries())
     .map(([date, counts]) => ({ date, counts }))
     .sort((a, b) => a.date.localeCompare(b.date));
-
-  // Current badge counts (from latest snapshot)
-  const latest = latestSnapshot(serverId);
+  
+  const latest = await latestSnapshot(serverId);
   const currentBadgeCounts = badges.map(b => ({
     id: b.id, label: b.label, prefix: b.prefix, color: b.color,
     count: latest?.badge_counts[b.id] ?? 0,
   }));
-
+  
   return {
     badges,
     daily_stats: dailyStats,
@@ -140,36 +159,42 @@ export function computeStats(serverId: string) {
 }
 
 // --- search ---
-export function searchPlayers(query: string) {
-  const servers = listServers();
-  const badges = listBadges();
+export async function searchPlayers(query: string) {
+  const [servers] = await POOL.execute('SELECT id, name FROM servers') as any[];
+  const [allBadges] = await POOL.execute('SELECT id, prefix, label, color FROM badge_tags') as any[];
+  const badgeMap = new Map<string, { label: string; prefix: string; color: string }>();
+  for (const b of allBadges as any[]) badgeMap.set(b.id, b);
+  
   const results: Array<{
     player_name: string; fetched_at: string; server_name: string;
     badge_label: string | null; badge_color: string | null; badge_prefix: string | null;
   }> = [];
-
-  const q = query.toLowerCase();
+  
+  const seen = new Set<string>();
+  const q = `%${query}%`;
+  
   for (const sv of servers) {
-    const snaps = readSnapshots(sv.id);
-    const seen = new Set<string>();
-    for (const snap of snaps) {
-      for (const p of snap.players) {
-        if (!p.name.toLowerCase().includes(q)) continue;
-        const key = p.name.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const badge = p.badge_tag_id ? badges.find(b => b.id === p.badge_tag_id) : null;
-        results.push({
-          player_name: p.name,
-          fetched_at: snap.fetched_at,
-          server_name: sv.name,
-          badge_label: badge?.label ?? null,
-          badge_color: badge?.color ?? null,
-          badge_prefix: badge?.prefix ?? null,
-        });
-        if (results.length >= 100) return results;
-      }
+    const [players] = await POOL.execute(
+      'SELECT player_name, fetched_at, badge_tag_id FROM player_snapshots WHERE server_id = ? AND player_name LIKE ? ORDER BY fetched_at DESC LIMIT 100',
+      [sv.id, q]
+    ) as any[];
+    
+    for (const p of players) {
+      const key = `${p.player_name}-${sv.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const badge = p.badge_tag_id ? badgeMap.get(p.badge_tag_id) : null;
+      results.push({
+        player_name: p.player_name,
+        fetched_at: new Date(p.fetched_at).toISOString(),
+        server_name: sv.name,
+        badge_label: badge?.label ?? null,
+        badge_color: badge?.color ?? null,
+        badge_prefix: badge?.prefix ?? null,
+      });
+      if (results.length >= 100) break;
     }
+    if (results.length >= 100) break;
   }
   return results;
 }
